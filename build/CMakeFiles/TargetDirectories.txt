@@ -1,0 +1,4 @@
+/Users/johnreidbampfield/Documents/Tenzo/build/CMakeFiles/Tenzo.dir
+/Users/johnreidbampfield/Documents/Tenzo/build/CMakeFiles/main.dir
+/Users/johnreidbampfield/Documents/Tenzo/build/CMakeFiles/edit_cache.dir
+/Users/johnreidbampfield/Documents/Tenzo/build/CMakeFiles/rebuild_cache.dir

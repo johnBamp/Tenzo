@@ -1,0 +1,2 @@
+/usr/bin/ar qc libTenzo.a CMakeFiles/Tenzo.dir/src/tensor.cpp.o
+/usr/bin/ranlib libTenzo.a
