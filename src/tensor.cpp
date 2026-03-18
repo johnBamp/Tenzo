@@ -1,8 +1,21 @@
 #include "../include/tensor.hpp"
+#include <algorithm>
 
 using namespace tenzo;
 
 Tensor::Tensor(const std::vector<int>& layout) : layout(layout) {
+    data.resize(computeSize(layout), 0.0);
+
+    strides.resize(layout.size());
+    int stride = 1;
+    for (int i = static_cast<int>(layout.size()) - 1; i >= 0; --i) {
+        strides[i] = stride;
+        stride *= layout[i];
+    }
+}
+
+//-------------Helpers-------------
+int Tensor::computeSize(const std::vector<int>& layout) {
     if (layout.empty()) {
         throw std::runtime_error("Layout cannot be empty");
     }
@@ -15,17 +28,9 @@ Tensor::Tensor(const std::vector<int>& layout) : layout(layout) {
         totalSize *= dim;
     }
 
-    data.resize(totalSize, 0.0);
-
-    strides.resize(layout.size());
-    int stride = 1;
-    for (int i = static_cast<int>(layout.size()) - 1; i >= 0; --i) {
-        strides[i] = stride;
-        stride *= layout[i];
-    }
+    return totalSize;
 }
 
-//-------------Helpers-------------
 int Tensor::computeLinearIndex(const std::vector<int>& index) const {
     if (index.size() != layout.size()) {
         throw std::runtime_error("Index does not match dimensions");
@@ -40,6 +45,26 @@ int Tensor::computeLinearIndex(const std::vector<int>& index) const {
     }
 
     return linear;
+}
+
+std::vector<int> Tensor::computeMultiIndex(int linearIndex) const {
+    if (linearIndex < 0 || linearIndex >= size()) {
+        throw std::runtime_error("Linear index out of bounds");
+    }
+
+    std::vector<int> index(layout.size());
+    for (size_t i = 0; i < layout.size(); ++i) {
+        index[i] = linearIndex / strides[i];
+        linearIndex %= strides[i];
+    }
+
+    return index;
+}
+
+void Tensor::ensureSameLayout(const Tensor& other, const char* op) const {
+    if (layout != other.layout) {
+        throw std::runtime_error(std::string("Tensor layouts do not match for ") + op);
+    }
 }
 
 void Tensor::printRecursive(
@@ -160,14 +185,39 @@ Tensor& Tensor::operator=(const Tensor& other) {
         return *this;
     }
 
-    if (layout != other.layout) {
-        throw std::runtime_error("Tensor layouts do not match");
-    }
-
     data = other.data;
+    layout = other.layout;
     strides = other.strides;
 
     return *this;
+}
+
+Tensor Tensor::operator+() const {
+    return clone();
+}
+
+Tensor Tensor::operator-() const {
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = -data[i];
+    }
+    return result;
+}
+
+Tensor Tensor::operator+(double scalar) const {
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] + scalar;
+    }
+    return result;
+}
+
+Tensor Tensor::operator-(double scalar) const {
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] - scalar;
+    }
+    return result;
 }
 
 // * Operators
@@ -175,6 +225,38 @@ Tensor Tensor::operator*(double scalar) const {
     Tensor result(layout);
     for (size_t i = 0; i < data.size(); ++i) {
         result.data[i] = data[i] * scalar;
+    }
+    return result;
+}
+
+Tensor Tensor::operator/(double scalar) const {
+    if (scalar == 0.0) {
+        throw std::runtime_error("Division by zero");
+    }
+
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] / scalar;
+    }
+    return result;
+}
+
+Tensor Tensor::operator+(const Tensor& other) const {
+    ensureSameLayout(other, "addition");
+
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] + other.data[i];
+    }
+    return result;
+}
+
+Tensor Tensor::operator-(const Tensor& other) const {
+    ensureSameLayout(other, "subtraction");
+
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] - other.data[i];
     }
     return result;
 }
@@ -221,9 +303,166 @@ Tensor Tensor::operator*(const Tensor& other) const {
     return result;
 }
 
+Tensor Tensor::operator/(const Tensor& other) const {
+    ensureSameLayout(other, "division");
+
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        if (other.data[i] == 0.0) {
+            throw std::runtime_error("Division by zero");
+        }
+        result.data[i] = data[i] / other.data[i];
+    }
+    return result;
+}
+
+Tensor& Tensor::operator+=(double scalar) {
+    for (double& value : data) {
+        value += scalar;
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator-=(double scalar) {
+    for (double& value : data) {
+        value -= scalar;
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator*=(double scalar) {
+    for (double& value : data) {
+        value *= scalar;
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator/=(double scalar) {
+    if (scalar == 0.0) {
+        throw std::runtime_error("Division by zero");
+    }
+
+    for (double& value : data) {
+        value /= scalar;
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator+=(const Tensor& other) {
+    ensureSameLayout(other, "addition");
+
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] += other.data[i];
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator-=(const Tensor& other) {
+    ensureSameLayout(other, "subtraction");
+
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] -= other.data[i];
+    }
+    return *this;
+}
+
+Tensor& Tensor::operator/=(const Tensor& other) {
+    ensureSameLayout(other, "division");
+
+    for (size_t i = 0; i < data.size(); ++i) {
+        if (other.data[i] == 0.0) {
+            throw std::runtime_error("Division by zero");
+        }
+        data[i] /= other.data[i];
+    }
+    return *this;
+}
+
 //-------------Misc-------------
+void Tensor::fill(double value) {
+    std::fill(data.begin(), data.end(), value);
+}
+
+Tensor Tensor::reshape(const std::vector<int>& newLayout) const {
+    if (computeSize(newLayout) != size()) {
+        throw std::runtime_error("Reshape size must match tensor size");
+    }
+
+    Tensor result(newLayout);
+    result.data = data;
+    return result;
+}
+
+Tensor Tensor::transpose(int axis1, int axis2) const {
+    int tensorRank = rank();
+    if (axis1 < 0 || axis1 >= tensorRank || axis2 < 0 || axis2 >= tensorRank) {
+        throw std::runtime_error("Transpose axes out of bounds");
+    }
+
+    std::vector<int> resultLayout = layout;
+    std::swap(resultLayout[axis1], resultLayout[axis2]);
+
+    Tensor result(resultLayout);
+
+    for (int linearIndex = 0; linearIndex < size(); ++linearIndex) {
+        std::vector<int> index = computeMultiIndex(linearIndex);
+        std::swap(index[axis1], index[axis2]);
+        result(index) = data[linearIndex];
+    }
+
+    return result;
+}
+
+Tensor Tensor::flatten() const {
+    return reshape({size()});
+}
+
+Tensor Tensor::clone() const {
+    Tensor result(layout);
+    result.data = data;
+    return result;
+}
+
+Tensor Tensor::multiply(const Tensor& other) const {
+    ensureSameLayout(other, "elementwise multiplication");
+
+    Tensor result(layout);
+    for (size_t i = 0; i < data.size(); ++i) {
+        result.data[i] = data[i] * other.data[i];
+    }
+    return result;
+}
+
+double Tensor::sum() const {
+    double result = 0.0;
+    for (double value : data) {
+        result += value;
+    }
+    return result;
+}
+
+double Tensor::mean() const {
+    return sum() / static_cast<double>(size());
+}
+
+double Tensor::min() const {
+    return *std::min_element(data.begin(), data.end());
+}
+
+double Tensor::max() const {
+    return *std::max_element(data.begin(), data.end());
+}
+
+std::vector<double> Tensor::toVector() const {
+    return data;
+}
+
 int Tensor::size() const {
     return static_cast<int>(data.size());
+}
+
+int Tensor::rank() const {
+    return static_cast<int>(layout.size());
 }
 
 std::vector<int> Tensor::getStrides() const {
@@ -232,4 +471,71 @@ std::vector<int> Tensor::getStrides() const {
 
 std::vector<int> Tensor::getLayout() const {
     return layout;
+}
+
+Tensor Tensor::zeros(const std::vector<int>& layout) {
+    return Tensor(layout);
+}
+
+Tensor Tensor::ones(const std::vector<int>& layout) {
+    return full(layout, 1.0);
+}
+
+Tensor Tensor::full(const std::vector<int>& layout, double value) {
+    Tensor tensor(layout);
+    tensor.fill(value);
+    return tensor;
+}
+
+Tensor Tensor::arange(double start, double end, double step) {
+    if (step == 0.0) {
+        throw std::runtime_error("Step cannot be zero");
+    }
+
+    std::vector<double> values;
+
+    if (step > 0.0) {
+        for (double value = start; value < end; value += step) {
+            values.push_back(value);
+        }
+    } else {
+        for (double value = start; value > end; value += step) {
+            values.push_back(value);
+        }
+    }
+
+    if (values.empty()) {
+        throw std::runtime_error("arange produced an empty tensor");
+    }
+
+    Tensor tensor({static_cast<int>(values.size())});
+    tensor.data = values;
+    return tensor;
+}
+
+Tensor tenzo::operator+(double scalar, const Tensor& tensor) {
+    return tensor + scalar;
+}
+
+Tensor tenzo::operator-(double scalar, const Tensor& tensor) {
+    Tensor result(tensor.layout);
+    for (size_t i = 0; i < tensor.data.size(); ++i) {
+        result.data[i] = scalar - tensor.data[i];
+    }
+    return result;
+}
+
+Tensor tenzo::operator*(double scalar, const Tensor& tensor) {
+    return tensor * scalar;
+}
+
+Tensor tenzo::operator/(double scalar, const Tensor& tensor) {
+    Tensor result(tensor.layout);
+    for (size_t i = 0; i < tensor.data.size(); ++i) {
+        if (tensor.data[i] == 0.0) {
+            throw std::runtime_error("Division by zero");
+        }
+        result.data[i] = scalar / tensor.data[i];
+    }
+    return result;
 }
